@@ -1,22 +1,21 @@
 services:
-  # バックエンドAPIサーバー
   - type: web
     name: downloader-backend
     env: node
-    plan: free # 無料プラン。必要に応じて変更
-    # ビルド時にnpm installとyt-dlpのインストールを実行
-    buildCommand: "pip install --upgrade pip && pip install --no-cache-dir -U yt-dlp"
-    # 起動コマンド
+    plan: free
+    region: oregon
+    # pythonコマンド経由でpipを実行する、より確実な方法に変更
+    buildCommand: "python -m pip install --upgrade pip && python -m pip install --no-cache-dir -U yt-dlp"
     startCommand: "node server.js"
     healthCheckPath: /
     envVars:
       - key: NODE_VERSION
-        value: 18 # 使用するNode.jsのバージョンを指定
+        value: 18
       - key: PYTHON_VERSION
-        value: 3.10 # 使用するPythonのバージョンを指定
+        value: 3.10
       - key: FILE_LIFETIME_MIN
         value: 15
       - key: MAX_FILE_SIZE
-        value: 750m # Freeプランのディスク容量に注意
+        value: 750m
       - key: PROCESS_TIMEOUT_SEC
-        value: 900 # 15分
+        value: 900
