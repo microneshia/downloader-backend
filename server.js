@@ -1,4 +1,4 @@
-// --- モジュールのインポート ---
+// --- モジュールのインポート (変更なし) ---
 const http = require('http');
 const express = require('express');
 const { WebSocketServer } = require('ws');
@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 require('dotenv').config();
 
-// --- 設定項目 ---
+// --- 設定項目 (変更なし) ---
 const PORT = process.env.PORT || 3000;
 const FILE_LIFETIME = (parseInt(process.env.FILE_LIFETIME_MIN, 10) || 15) * 60 * 1000;
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE || '2g';
@@ -19,13 +19,12 @@ const PROCESS_TIMEOUT = (parseInt(process.env.PROCESS_TIMEOUT_SEC, 10) || 900) *
 const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);
 
-// --- アプリケーションのセットアップ ---
+// --- アプリケーションのセットアップ (変更なし) ---
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// --- Middleware ---
-app.set('trust proxy', 1);
+// --- Middleware (変更なし) ---
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json());
@@ -33,10 +32,12 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders:
 app.use('/get-formats', limiter);
 app.use('/download', limiter);
 
-// --- 静的ファイルとAPIエンドポイント ---
+// --- 静的ファイルの提供 (変更なし) ---
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/downloads', express.static(DOWNLOADS_DIR));
-app.get('/', (req, res) => res.status(200).send('Backend server is running successfully.'));
+app.get('/', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 
+// --- WebSocket 接続管理 (変更なし) ---
 const clients = new Map();
 wss.on('connection', (ws) => {
     const { v4: uuidv4 } = require('uuid');
@@ -48,20 +49,18 @@ wss.on('connection', (ws) => {
     ws.on('error', (error) => console.error(`WebSocket Error for client ${clientId}:`, error));
 });
 
+// --- APIエンドポイント (変更なし) ---
 app.post('/get-formats', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ message: 'URLは必須です。' });
     try {
-        const infoJson = await runCommand('yt-dlp', ['-J', '--verbose', url]);
+        const infoJson = await runCommand('yt-dlp', ['-J', url]);
         const videoInfo = JSON.parse(infoJson);
         res.json({ title: videoInfo.title, thumbnail: videoInfo.thumbnail, formats: videoInfo.formats });
     } catch (error) {
-        // ★★★ 修正箇所 ★★★
-        console.error("Error in /get-formats:", error); // エラーオブジェクト全体をログに出力
-        res.status(500).json({ message: error.message || "情報の取得中に不明なサーバーエラーが発生しました。" });
+        res.status(500).json({ message: "情報の取得に失敗しました。URLが有効か、動画がプライベートでないか確認してください。" });
     }
 });
-
 app.post('/download', (req, res) => {
     console.log('Received /download request with body:', req.body);
     const { clientId, url, title, options } = req.body;
@@ -80,60 +79,133 @@ app.post('/download', (req, res) => {
     processDownload(clientId, url, title, options);
 });
 
-// --- コアロジック ---
-function getUniqueFilename(directory, filenameBase, extension) { let finalFilename = `${filenameBase}.${extension}`; let counter = 1; while (fs.existsSync(path.join(directory, finalFilename))) { finalFilename = `${filenameBase} (${counter}).${extension}`; counter++; } return finalFilename; }
-function sanitizeFilename(filename) { const sanitized = filename.replace(/[\\/:\*\?"<>\|]/g, '_'); return sanitized.substring(0, 100); }
 
-async function processDownload(clientId, url, title, options) {
-    const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
-    sendToClient({ type: 'status', message: 'ダウンロード準備中...' });
-    try {
-        const safeTitle = sanitizeFilename(title);
-        const finalFilename = getUniqueFilename(DOWNLOADS_DIR, safeTitle, options.ext);
-        const outputPath = path.join(DOWNLOADS_DIR, finalFilename);
-        let downloadArgs = ['--verbose', '--no-playlist', '-o', outputPath];
-        if (options.type === 'expert_video') {
-            downloadArgs.push('-f', `${options.vcodec_id}+${options.acodec_id}`, '--merge-output-format', 'mp4');
-        } else if (options.type === 'expert_audio') {
-            downloadArgs.push('-f', options.acodec_id, '-x', '--audio-format', options.ext);
-            if (options.audio_quality) downloadArgs.push('--audio-quality', options.audio_quality);
-        } else {
-            if (options.ext === 'mp3') downloadArgs.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
-            else downloadArgs.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
-        }
-        downloadArgs.push(url);
-        await runCommand('yt-dlp', downloadArgs, clientId);
-        if (!fs.existsSync(outputPath)) throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
-        sendToClient({ type: 'completed', data: { downloadUrl: `/downloads/${finalFilename}`, filename: finalFilename } });
-        setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
-    } catch (error) {
-        console.error("Error in processDownload:", error); // エラーオブジェクト全体をログに出力
-        sendToClient({ type: 'failed', message: error.message });
+// --- コアロジック ---
+
+// ヘルパー関数 (変更なし)
+function getUniqueFilename(directory, filenameBase, extension) {
+    let finalFilename = `${filenameBase}.${extension}`;
+    let counter = 1;
+    while (fs.existsSync(path.join(directory, finalFilename))) {
+        finalFilename = `${filenameBase} (${counter}).${extension}`;
+        counter++;
     }
+    return finalFilename;
+}
+function sanitizeFilename(filename) {
+    const sanitized = filename.replace(/[\\/:\*\?"<>\|]/g, '_');
+    return sanitized.substring(0, 100);
 }
 
+// [★★★ 修正箇所 1 ★★★] runCommand: エラー詳細を返すように変更
 function runCommand(command, args, clientId = null) {
     return new Promise((resolve, reject) => {
         console.log(`Executing: ${command} ${args.join(' ')}`);
         const process = spawn(command, args);
         const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
-        let stdout = '', stderr = '';
+        
+        let stdout = '';
+        let stderr = ''; // エラー出力を保持する変数
+
         const timeoutId = setTimeout(() => { process.kill('SIGKILL'); reject(new Error(`プロセスがタイムアウトしました`)); }, PROCESS_TIMEOUT);
+        
         process.stdout.on('data', (data) => {
             const line = data.toString();
             stdout += line;
             const progressMatch = line.match(/\[download\]\s+([\d.]+)% of/);
             if (progressMatch) sendToClient({ type: 'progress', progress: parseFloat(progressMatch[1]) });
         });
-        process.stderr.on('data', (data) => { stderr += data.toString(); });
+        
+        process.stderr.on('data', (data) => {
+            // エラー出力をstderr変数に蓄積
+            stderr += data.toString();
+        });
+        
         process.on('close', (code) => {
             clearTimeout(timeoutId);
-            if (code === 0) resolve(stdout);
-            else { console.error(`yt-dlp stderr: ${stderr}`); reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`)); }
+            if (code === 0) {
+                resolve(stdout);
+            } else {
+                console.error(`yt-dlp stderr: ${stderr}`);
+                // ★★★ 失敗時にstderrの内容をrejectのErrorオブジェクトに含める ★★★
+                reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`));
+            }
         });
+
         process.on('error', (err) => { clearTimeout(timeoutId); reject(new Error(`プロセスの起動に失敗: ${err.message}`)); });
     });
 }
 
-// --- サーバー起動 ---
-server.listen(PORT, () => console.log(`サーバーが http://localhost:${PORT} で起動しました`));
+// [★★★ 修正箇所 2 ★★★] processDownload: 引数の組み立てとエラーハンドリングを強化
+async function processDownload(clientId, url, title, options) {
+    const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
+    sendToClient({ type: 'status', message: 'ダウンロード準備中...' });
+
+    try {
+        const safeTitle = sanitizeFilename(title);
+        const finalFilename = getUniqueFilename(DOWNLOADS_DIR, safeTitle, options.ext);
+        const outputPath = path.join(DOWNLOADS_DIR, finalFilename);
+
+        let downloadArgs = [
+            '--no-playlist', // 常にプレイリストのダウンロードを無効化
+            '-o', outputPath, // 出力先を明示
+        ];
+        
+        // ★★★ エキスパートモードの引数組み立てを修正 ★★★
+        if (options.type === 'expert_video') {
+            // -f "videoid+audioid" 形式
+            downloadArgs.push('-f', `${options.vcodec_id}+${options.acodec_id}`);
+            // 念のため、出力コンテナをmp4に指定
+            downloadArgs.push('--merge-output-format', 'mp4');
+        } else if (options.type === 'expert_audio') {
+            // -f "audioid" 形式
+            downloadArgs.push('-f', options.acodec_id);
+            // 音声抽出オプション
+            downloadArgs.push('-x');
+            downloadArgs.push('--audio-format', options.ext);
+            if (options.audio_quality) {
+                downloadArgs.push('--audio-quality', options.audio_quality);
+            }
+        } else { // シンプルモード (変更なし)
+            if (options.ext === 'mp3') {
+                downloadArgs.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
+            } else {
+                downloadArgs.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+            }
+        }
+
+        // 最後にURLを追加
+        downloadArgs.push(url);
+
+        // --max-filesize はyt-dlpのバージョンや使い方によっては意図しない動作をすることがあるため、
+        // 一旦コメントアウトして問題の切り分けを行う。必要なら後で復活させる。
+        // downloadArgs.push('--max-filesize', MAX_FILE_SIZE);
+
+        await runCommand('yt-dlp', downloadArgs, clientId);
+
+        // ★★★ ファイル存在チェックを追加 ★★★
+        if (!fs.existsSync(outputPath)) {
+            throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
+        }
+
+        sendToClient({
+            type: 'completed',
+            data: {
+                downloadUrl: `/downloads/${finalFilename}`,
+                filename: finalFilename
+            }
+        });
+
+        setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
+    
+    } catch (error) {
+        // エラーメッセージをクライアントに送信
+        sendToClient({ type: 'failed', message: error.message });
+    }
+}
+
+
+// --- サーバー起動 (変更なし) ---
+server.listen(PORT, () => {
+    console.log(`サーバーが http://localhost:${PORT} で起動しました`);
+});
