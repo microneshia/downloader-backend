@@ -5,7 +5,7 @@ services:
     env: node
     plan: free # 無料プラン。必要に応じて変更
     # ビルド時にnpm installとyt-dlpのインストールを実行
-    buildCommand: "npm install && pip install -U yt-dlp"
+    buildCommand: "pip install --upgrade pip && pip install --no-cache-dir -U yt-dlp"
     # 起動コマンド
     startCommand: "node server.js"
     healthCheckPath: /
