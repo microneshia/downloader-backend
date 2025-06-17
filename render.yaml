@@ -1,21 +1,52 @@
+# services:
+#   - type: web
+#     name: downloader-backend
+#     env: python # ★★★ 環境を'python'に明示的に変更 ★★★
+#     plan: free
+#     region: oregon
+#     # ★★★ ビルドコマンドをPython中心に再構成 ★★★
+#     buildCommand: "pip install -U yt-dlp && npm install"
+#     startCommand: "node server.js"
+#     healthCheckPath: /
+#     # ★★★ Node.jsのバージョンもenvVarsで指定 ★★★
+#     envVars:
+#       - key: PYTHON_VERSION
+#         value: 3.11 # Pythonのバージョンを少し上げる
+#       - key: NODE_VERSION
+#         value: 18
+#       # ↓↓↓ アプリケーションで使う環境変数はここに記述 ↓↓↓
+#       - key: FILE_LIFETIME_MIN
+#         value: 15
+#       - key: MAX_FILE_SIZE
+#         value: 750m
+#       - key: PROCESS_TIMEOUT_SEC
+#         value: 900
 services:
   - type: web
-    name: downloader-backend
-    env: node
+    name: advanced-downloader-backend
+    env: node # Let Render detect Node.js, but we'll customize the build
     plan: free
     region: oregon
-    # pythonコマンド経由でpipを実行する、より確実な方法に変更
-    buildCommand: "python -m pip install --upgrade pip && python -m pip install --no-cache-dir -U yt-dlp"
+    # Root directory for this service, if not the repo root
+    # rootDir: ./
+    
+    # Build command to install both Node.js and Python dependencies
+    buildCommand: "npm install && pip install -U yt-dlp"
+    
+    # Start command to run the Node.js server
     startCommand: "node server.js"
+    
     healthCheckPath: /
+
+    # Define environment variables
     envVars:
       - key: NODE_VERSION
         value: 18
-      - key: PYTHON_VERSION
-        value: 3.10
+      - key: PYTHON_VERSION # Specify Python version to be available in the environment
+        value: 3.11
       - key: FILE_LIFETIME_MIN
         value: 15
       - key: MAX_FILE_SIZE
-        value: 750m
+        value: "750m"
       - key: PROCESS_TIMEOUT_SEC
         value: 900
