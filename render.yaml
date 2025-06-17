@@ -23,14 +23,13 @@ services:
         value: "750m"
       - key: PROCESS_TIMEOUT_SEC
         value: 900
-<<<<<<< HEAD
         
     # The build command for your service.
-    # It first installs Node.js dependencies, then Python dependencies.
+    # It only installs Node.js dependencies.
     buildCommand: "npm install"
     
-    # A command to run before the start command.
-    # We use this to reliably install yt-dlp.
+    # ★★★ A command to run BEFORE the start command. ★★★
+    # We use this to reliably install yt-dlp in the runtime environment.
     preDeployCommand: "pip install --upgrade pip && pip install -U yt-dlp"
 
     # The command to start your service.
@@ -38,5 +37,3 @@ services:
     
     # A health check path that Render uses to determine if the service is live.
     healthCheckPath: /
-=======
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
