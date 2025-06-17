@@ -23,6 +23,7 @@ services:
         value: "750m"
       - key: PROCESS_TIMEOUT_SEC
         value: 900
+<<<<<<< HEAD
         
     # The build command for your service.
     # It first installs Node.js dependencies, then Python dependencies.
@@ -37,3 +38,5 @@ services:
     
     # A health check path that Render uses to determine if the service is live.
     healthCheckPath: /
+=======
+>>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
