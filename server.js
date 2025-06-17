@@ -33,11 +33,7 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders:
 app.use('/get-formats', limiter);
 app.use('/download', limiter);
 
-<<<<<<< HEAD
 // --- 静的ファイルとAPIエンドポイント ---
-=======
-// --- 静的ファイルの提供とAPIエンドポイント ---
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
 app.use('/downloads', express.static(DOWNLOADS_DIR));
 app.get('/', (req, res) => res.status(200).send('Backend server is running successfully.'));
 
@@ -56,18 +52,10 @@ app.post('/get-formats', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ message: 'URLは必須です。' });
     try {
-<<<<<<< HEAD
-=======
-        // ★★★ 修正箇所 ★★★
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
         const infoJson = await runCommand('yt-dlp', ['-J', '--verbose', url]);
         const videoInfo = JSON.parse(infoJson);
         res.json({ title: videoInfo.title, thumbnail: videoInfo.thumbnail, formats: videoInfo.formats });
     } catch (error) {
-<<<<<<< HEAD
-=======
-        // runCommandからのエラーメッセージをそのまま返す
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
         res.status(500).json({ message: error.message });
     }
 });
@@ -113,14 +101,7 @@ async function processDownload(clientId, url, title, options) {
         const safeTitle = sanitizeFilename(title);
         const finalFilename = getUniqueFilename(DOWNLOADS_DIR, safeTitle, options.ext);
         const outputPath = path.join(DOWNLOADS_DIR, finalFilename);
-<<<<<<< HEAD
         let downloadArgs = ['--verbose', '--no-playlist', '-o', outputPath];
-=======
-        
-        // ★★★ 修正箇所 ★★★
-        let downloadArgs = ['--verbose', '--no-playlist', '-o', outputPath];
-        
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
         if (options.type === 'expert_video') {
             downloadArgs.push('-f', `${options.vcodec_id}+${options.acodec_id}`, '--merge-output-format', 'mp4');
         } else if (options.type === 'expert_audio') {
@@ -131,24 +112,9 @@ async function processDownload(clientId, url, title, options) {
             else downloadArgs.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
         }
         downloadArgs.push(url);
-<<<<<<< HEAD
         await runCommand('yt-dlp', downloadArgs, clientId);
         if (!fs.existsSync(outputPath)) throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
         sendToClient({ type: 'completed', data: { downloadUrl: `/downloads/${finalFilename}`, filename: finalFilename } });
-=======
-
-        await runCommand('yt-dlp', downloadArgs, clientId);
-        if (!fs.existsSync(outputPath)) throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
-        
-        sendToClient({
-            type: 'completed',
-            data: {
-                downloadUrl: `/downloads/${finalFilename}`,
-                filename: finalFilename
-            }
-        });
-
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
         setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
     } catch (error) {
         sendToClient({ type: 'failed', message: error.message });
@@ -162,56 +128,21 @@ function runCommand(command, args, clientId = null) {
         const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
         let stdout = '', stderr = '';
         const timeoutId = setTimeout(() => { process.kill('SIGKILL'); reject(new Error(`プロセスがタイムアウトしました`)); }, PROCESS_TIMEOUT);
-<<<<<<< HEAD
         process.stdout.on('data', (data) => {
             const line = data.toString();
-=======
-        
-        process.stdout.on('data', (data) => {
-            const line = data.toString();
-            // 詳細ログもクライアントに送る（デバッグ用）
-            if (clientId && line.startsWith('[debug]')) {
-                // sendToClient({ type: 'status', message: line.substring(0, 100) });
-            }
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
             stdout += line;
             const progressMatch = line.match(/\[download\]\s+([\d.]+)% of/);
             if (progressMatch) sendToClient({ type: 'progress', progress: parseFloat(progressMatch[1]) });
         });
-<<<<<<< HEAD
         process.stderr.on('data', (data) => { stderr += data.toString(); });
         process.on('close', (code) => {
             clearTimeout(timeoutId);
             if (code === 0) resolve(stdout);
             else { console.error(`yt-dlp stderr: ${stderr}`); reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`)); }
         });
-=======
-        
-        process.stderr.on('data', (data) => {
-            stderr += data.toString();
-        });
-        
-        process.on('close', (code) => {
-            clearTimeout(timeoutId);
-            if (code === 0) {
-                resolve(stdout);
-            } else {
-                console.error(`yt-dlp stderr: ${stderr}`);
-                // エラーメッセージにstderrの内容を含める
-                reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`));
-            }
-        });
-        
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
         process.on('error', (err) => { clearTimeout(timeoutId); reject(new Error(`プロセスの起動に失敗: ${err.message}`)); });
     });
 }
 
 // --- サーバー起動 ---
-<<<<<<< HEAD
 server.listen(PORT, () => console.log(`サーバーが http://localhost:${PORT} で起動しました`));
-=======
-server.listen(PORT, () => {
-    console.log(`サーバーが http://localhost:${PORT} で起動しました`);
-});
->>>>>>> 242514f2d141c51d56d847267fe515e803e4b584
