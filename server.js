@@ -56,7 +56,9 @@ app.post('/get-formats', async (req, res) => {
         const videoInfo = JSON.parse(infoJson);
         res.json({ title: videoInfo.title, thumbnail: videoInfo.thumbnail, formats: videoInfo.formats });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        // ★★★ 修正箇所 ★★★
+        console.error("Error in /get-formats:", error); // エラーオブジェクト全体をログに出力
+        res.status(500).json({ message: error.message || "情報の取得中に不明なサーバーエラーが発生しました。" });
     }
 });
 
@@ -79,20 +81,8 @@ app.post('/download', (req, res) => {
 });
 
 // --- コアロジック ---
-function getUniqueFilename(directory, filenameBase, extension) {
-    let finalFilename = `${filenameBase}.${extension}`;
-    let counter = 1;
-    while (fs.existsSync(path.join(directory, finalFilename))) {
-        finalFilename = `${filenameBase} (${counter}).${extension}`;
-        counter++;
-    }
-    return finalFilename;
-}
-
-function sanitizeFilename(filename) {
-    const sanitized = filename.replace(/[\\/:\*\?"<>\|]/g, '_');
-    return sanitized.substring(0, 100);
-}
+function getUniqueFilename(directory, filenameBase, extension) { let finalFilename = `${filenameBase}.${extension}`; let counter = 1; while (fs.existsSync(path.join(directory, finalFilename))) { finalFilename = `${filenameBase} (${counter}).${extension}`; counter++; } return finalFilename; }
+function sanitizeFilename(filename) { const sanitized = filename.replace(/[\\/:\*\?"<>\|]/g, '_'); return sanitized.substring(0, 100); }
 
 async function processDownload(clientId, url, title, options) {
     const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
@@ -117,6 +107,7 @@ async function processDownload(clientId, url, title, options) {
         sendToClient({ type: 'completed', data: { downloadUrl: `/downloads/${finalFilename}`, filename: finalFilename } });
         setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
     } catch (error) {
+        console.error("Error in processDownload:", error); // エラーオブジェクト全体をログに出力
         sendToClient({ type: 'failed', message: error.message });
     }
 }
