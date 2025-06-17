@@ -1,0 +1,13 @@
+# Node.js
+/node_modules
+npm-debug.log*
+
+# Environment Variables
+.env
+
+# Downloads folder
+/downloads
+
+# OS-specific
+.DS_Store
+Thumbs.db
