@@ -24,12 +24,12 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
-// ★★★ 問題1の解決策：この一行を追加 ★★★
-// Renderのプロキシを信頼するようにExpressに指示します。
-// これにより、X-Forwarded-Forヘッダーが正しく解釈され、express-rate-limitが正常に動作します。
-app.set('trust proxy', 1);
+// ★★★ ここに欠落していた行を追加します ★★★
+// 接続してきたクライアントを管理するためのMapオブジェクト（名簿）を作成します。
+const clients = new Map();
 
 // --- Middleware ---
+app.set('trust proxy', 1); // Renderのプロキシを信頼する設定
 app.use(helmet({ contentSecurityPolicy: false }));
 const corsOptions = {
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -46,16 +46,24 @@ app.use('/downloads', express.static(DOWNLOADS_DIR));
 app.get('/', (req, res) => { res.status(200).send("Backend server is running."); });
 
 // --- WebSocket 接続管理 ---
+// WebSocketの接続が確立された時の処理
 wss.on('connection', (ws) => {
     const { v4: uuidv4 } = require('uuid');
     const clientId = uuidv4();
+    // このclientIdをキーとして、クライアントの名簿(clients)に登録します。
     clients.set(clientId, ws);
     console.log(`Client connected: ${clientId}`);
+    // 接続したクライアントに、あなたのIDを教えます。
     ws.send(JSON.stringify({ type: 'connection_ack', clientId }));
-    ws.on('close', () => { clients.delete(clientId); console.log(`Client disconnected: ${clientId}`); });
+    // 接続が切れた時の処理
+    ws.on('close', () => {
+        clients.delete(clientId); // 名簿から削除します
+        console.log(`Client disconnected: ${clientId}`);
+    });
     ws.on('error', (error) => console.error(`WebSocket Error for client ${clientId}:`, error));
 });
 
+// HTTPサーバーの 'upgrade' イベントを処理し、WebSocket接続を確立します。
 server.on('upgrade', (request, socket, head) => {
   wss.handleUpgrade(request, socket, head, (ws) => {
     wss.emit('connection', ws, request);
@@ -83,6 +91,7 @@ app.post('/download', (req, res) => {
     if (!url) errorMessages.push('urlがありません。');
     if (!title) errorMessages.push('titleがありません。');
     if (!options) errorMessages.push('optionsがありません。');
+    // 名簿(clients)に、指定されたclientIdが存在するか確認します。
     if (clientId && !clients.has(clientId)) errorMessages.push(`サーバーがclientId '${clientId}'を認識できません。`);
     if (errorMessages.length > 0) {
         const fullErrorMessage = `無効なリクエストです: ${errorMessages.join(' ')}`;
@@ -92,7 +101,8 @@ app.post('/download', (req, res) => {
     res.status(202).json({ message: 'ダウンロードリクエストを受け付けました。' });
     processDownload(clientId, url, title, options);
 });
-// (これ以降のコアロジック関数は変更なしのため、そのままにしておきます)
+
+// --- コアロジック ---
 function getUniqueFilename(directory, filenameBase, extension) {
     let finalFilename = `${filenameBase}.${extension}`;
     let counter = 1;
@@ -110,6 +120,7 @@ function runCommand(command, args, clientId = null) {
     return new Promise((resolve, reject) => {
         console.log(`Executing: ${command} ${args.join(' ')}`);
         const process = spawn(command, args);
+        // 名簿(clients)から正しいクライアントを探してメッセージを送ります。
         const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
         let stdout = '';
         let stderr = '';
@@ -136,6 +147,7 @@ function runCommand(command, args, clientId = null) {
     });
 }
 async function processDownload(clientId, url, title, options) {
+    // 名簿(clients)から正しいクライアントを探してメッセージを送ります。
     const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
     sendToClient({ type: 'status', message: 'ダウンロード準備中...' });
     try {
