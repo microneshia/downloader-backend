@@ -27,11 +27,20 @@ const wss = new WebSocketServer({ server });
 // --- Middleware ---
 app.use(helmet({ contentSecurityPolicy: false }));
 // ★★★ CORS設定: Renderの環境変数で指定されたフロントエンドURLからのアクセスを許可します ★★★
-const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+// CORS設定を環境に応じて変更
+if (process.env.NODE_ENV === 'production') {
+    // 本番環境の場合
+    console.log(`CORS is enabled for origin: ${process.env.FRONTEND_URL}`);
+    const corsOptions = {
+        origin: process.env.FRONTEND_URL, // 環境変数で指定されたフロントエンドURLのみを許可
+        optionsSuccessStatus: 200
+    };
+    app.use(cors(corsOptions));
+} else {
+    // 開発環境の場合（ローカルテストなど）
+    console.log('CORS is enabled for all origins in development mode.');
+    app.use(cors()); // 全てのオリジンを許可
+}
 app.use(express.json());
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
 app.use('/get-formats', limiter);
