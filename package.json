@@ -1,7 +1,7 @@
 {
-    "name": "downloader-backend",
+    "name": "advanced-video-downloader-local",
     "version": "1.0.0",
-    "description": "Backend server for a video downloader feature.",
+    "description": "A high-functionality video downloader with simple and expert modes for local development.",
     "main": "server.js",
     "scripts": {
         "start": "node server.js"

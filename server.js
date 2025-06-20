@@ -25,18 +25,24 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 // --- Middleware ---
-app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
+// ★★★ CORS設定: Renderの環境変数で指定されたフロントエンドURLからのアクセスを許可します ★★★
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false });
 app.use('/get-formats', limiter);
 app.use('/download', limiter);
 
-// --- 静的ファイルとAPIエンドポイント ---
+// --- 静的ファイルの提供 ---
 app.use('/downloads', express.static(DOWNLOADS_DIR));
-app.get('/', (req, res) => res.status(200).send('Backend server is running successfully.'));
+// ヘルスチェック用のルート
+app.get('/', (req, res) => { res.status(200).send("Backend server is running."); });
 
+// --- WebSocket 接続管理 ---
 const clients = new Map();
 wss.on('connection', (ws) => {
     const { v4: uuidv4 } = require('uuid');
@@ -48,6 +54,7 @@ wss.on('connection', (ws) => {
     ws.on('error', (error) => console.error(`WebSocket Error for client ${clientId}:`, error));
 });
 
+// --- APIエンドポイント ---
 app.post('/get-formats', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ message: 'URLは必須です。' });
@@ -59,7 +66,6 @@ app.post('/get-formats', async (req, res) => {
         res.status(500).json({ message: "情報の取得に失敗しました。URLが有効か、動画がプライベートでないか確認してください。" });
     }
 });
-
 app.post('/download', (req, res) => {
     console.log('Received /download request with body:', req.body);
     const { clientId, url, title, options } = req.body;
@@ -88,61 +94,101 @@ function getUniqueFilename(directory, filenameBase, extension) {
     }
     return finalFilename;
 }
-
 function sanitizeFilename(filename) {
     const sanitized = filename.replace(/[\\/:\*\?"<>\|]/g, '_');
     return sanitized.substring(0, 100);
 }
-
-async function processDownload(clientId, url, title, options) {
-    const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
-    sendToClient({ type: 'status', message: 'ダウンロード準備中...' });
-    try {
-        const safeTitle = sanitizeFilename(title);
-        const finalFilename = getUniqueFilename(DOWNLOADS_DIR, safeTitle, options.ext);
-        const outputPath = path.join(DOWNLOADS_DIR, finalFilename);
-        let downloadArgs = ['--no-playlist', '-o', outputPath];
-        if (options.type === 'expert_video') {
-            downloadArgs.push('-f', `${options.vcodec_id}+${options.acodec_id}`, '--merge-output-format', 'mp4');
-        } else if (options.type === 'expert_audio') {
-            downloadArgs.push('-f', options.acodec_id, '-x', '--audio-format', options.ext);
-            if (options.audio_quality) downloadArgs.push('--audio-quality', options.audio_quality);
-        } else {
-            if (options.ext === 'mp3') downloadArgs.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
-            else downloadArgs.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
-        }
-        downloadArgs.push(url);
-        await runCommand('yt-dlp', downloadArgs, clientId);
-        if (!fs.existsSync(outputPath)) throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
-        sendToClient({ type: 'completed', data: { downloadUrl: `/downloads/${finalFilename}`, filename: finalFilename } });
-        setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
-    } catch (error) {
-        sendToClient({ type: 'failed', message: error.message });
-    }
-}
-
 function runCommand(command, args, clientId = null) {
     return new Promise((resolve, reject) => {
         console.log(`Executing: ${command} ${args.join(' ')}`);
         const process = spawn(command, args);
         const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
-        let stdout = '', stderr = '';
+        
+        let stdout = '';
+        let stderr = '';
+
         const timeoutId = setTimeout(() => { process.kill('SIGKILL'); reject(new Error(`プロセスがタイムアウトしました`)); }, PROCESS_TIMEOUT);
+        
         process.stdout.on('data', (data) => {
             const line = data.toString();
             stdout += line;
             const progressMatch = line.match(/\[download\]\s+([\d.]+)% of/);
             if (progressMatch) sendToClient({ type: 'progress', progress: parseFloat(progressMatch[1]) });
         });
-        process.stderr.on('data', (data) => { stderr += data.toString(); });
+        
+        process.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+        
         process.on('close', (code) => {
             clearTimeout(timeoutId);
-            if (code === 0) resolve(stdout);
-            else { console.error(`yt-dlp stderr: ${stderr}`); reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`)); }
+            if (code === 0) {
+                resolve(stdout);
+            } else {
+                console.error(`yt-dlp stderr: ${stderr}`);
+                reject(new Error(`yt-dlpの実行に失敗しました。エラー: ${stderr.trim()}`));
+            }
         });
+
         process.on('error', (err) => { clearTimeout(timeoutId); reject(new Error(`プロセスの起動に失敗: ${err.message}`)); });
     });
 }
+async function processDownload(clientId, url, title, options) {
+    const sendToClient = (data) => { if (clientId && clients.has(clientId)) clients.get(clientId).send(JSON.stringify(data)) };
+    sendToClient({ type: 'status', message: 'ダウンロード準備中...' });
+
+    try {
+        const safeTitle = sanitizeFilename(title);
+        const finalFilename = getUniqueFilename(DOWNLOADS_DIR, safeTitle, options.ext);
+        const outputPath = path.join(DOWNLOADS_DIR, finalFilename);
+
+        let downloadArgs = [
+            '--no-playlist',
+            '-o', outputPath,
+        ];
+        
+        if (options.type === 'expert_video') {
+            downloadArgs.push('-f', `${options.vcodec_id}+${options.acodec_id}`);
+            downloadArgs.push('--merge-output-format', 'mp4');
+        } else if (options.type === 'expert_audio') {
+            downloadArgs.push('-f', options.acodec_id);
+            downloadArgs.push('-x');
+            downloadArgs.push('--audio-format', options.ext);
+            if (options.audio_quality) {
+                downloadArgs.push('--audio-quality', options.audio_quality);
+            }
+        } else {
+            if (options.ext === 'mp3') {
+                downloadArgs.push('-x', '--audio-format', 'mp3', '--audio-quality', '0');
+            } else {
+                downloadArgs.push('-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best');
+            }
+        }
+
+        downloadArgs.push(url);
+
+        await runCommand('yt-dlp', downloadArgs, clientId);
+
+        if (!fs.existsSync(outputPath)) {
+            throw new Error('ダウンロードは完了しましたが、サーバー上でファイルが見つかりませんでした。');
+        }
+
+        sendToClient({
+            type: 'completed',
+            data: {
+                downloadUrl: `/downloads/${finalFilename}`,
+                filename: finalFilename
+            }
+        });
+
+        setTimeout(() => fs.unlink(outputPath, (err) => { if (err && err.code !== 'ENOENT') console.error(`ファイル削除エラー: ${outputPath}`, err); else if (!err) console.log(`ファイル削除成功: ${outputPath}`); }), FILE_LIFETIME);
+    
+    } catch (error) {
+        sendToClient({ type: 'failed', message: error.message });
+    }
+}
 
 // --- サーバー起動 ---
-server.listen(PORT, () => console.log(`サーバーが http://localhost:${PORT} で起動しました`));
+server.listen(PORT, () => {
+    console.log(`サーバーが http://localhost:${PORT} で起動しました`);
+});
