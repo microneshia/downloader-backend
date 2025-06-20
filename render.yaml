@@ -1,22 +1,52 @@
+# "services" は、このBlueprintで管理するサービスの一覧を定義します。
+# 今回はバックエンドサーバー1つだけなので、リストの項目も1つです。
 services:
-  - type: web
+  - # "-" はリストの項目を示します。
+    # "type: web" は、このサービスがHTTPリクエストを受け付けるWebサーバーであることを示します。
+    type: web
+    
+    # "name" は、Renderのダッシュボードに表示されるサービスの名前です。
+    # この名前が、自動生成される公開URLの一部になります (例: https://downloader-backend.onrender.com)
     name: downloader-backend
-    env: node
+    
+    # "env: docker" は、このサービスの実行環境としてDockerを使用することをRenderに指示します。
+    # これにより、Renderはリポジトリ内の "Dockerfile" を探し、その指示に従って環境を構築します。
+    # これが、ffmpeg や yt-dlp を確実にインストールするための最も重要な設定です。
+    env: docker
+    
+    # "plan: free" は、Renderの無料プランを使用することを示します。
     plan: free
-    region: oregon
-    buildCommand: "npm install && pip install --upgrade pip && pip install --no-cache-dir -U yt-dlp"
-    startCommand: "node server.js"
+
+    # "dockerfilePath" は、使用するDockerfileへのパスを指定します。
+    # プロジェクトのルートに置いているため、"./Dockerfile" となります。
+    dockerfilePath: ./Dockerfile
+    
+    # "dockerContext" は、Dockerがビルドを実行する際の基準となるディレクトリを指定します。
+    # プロジェクト全体をコンテキストとするため、"./" となります。
+    dockerContext: ./
+
+    # "healthCheckPath" は、Renderが定期的にアクセスしてサーバーが正常に動いているかを確認するためのパスです。
+    # このパスにHTTP 200番台の応答があれば「正常」、なければ「異常」と判断されます。
     healthCheckPath: /
+
+    # "envVars" は、アプリケーションに渡す環境変数を定義するセクションです。
+    # ここで定義した値は、server.js内で "process.env.KEY" の形で安全に取得できます。
     envVars:
-      - key: NODE_VERSION
-        value: 18
-      - key: PYTHON_VERSION
-        value: 3.10
+      # "key" と "value" のペアで1つの環境変数を定義します。
       - key: NODE_ENV
-        value: production # これでサーバーは本番モードで起動する
-      - key: FILE_LIFETIME_MIN
-        value: 15
+        value: production
+        
+      # "FRONTEND_URL" は、CORS（オリジン間リソース共有）設定で使う重要なセキュリティ設定です。
+      # ここで指定したURLからのアクセスのみを、バックエンドサーバーが許可するようになります。
+      # ★★★ この値は、あなたのGitHub Pagesのドメインに必ず書き換えてください ★★★
+      # 例: https://TARO-YAMADA.github.io  (/explanationなどのパスは含めないでください)
+      - key: FRONTEND_URL
+        value: https://microneshia.github.io
+        
+      # ダウンロード可能なファイルの最大サイズ（Render Freeプランのディスク容量を考慮）
       - key: MAX_FILE_SIZE
-        value: 750m
+        value: 400m
+        
+      # ダウンロードプロセスがタイムアウトするまでの時間（秒）
       - key: PROCESS_TIMEOUT_SEC
         value: 900
