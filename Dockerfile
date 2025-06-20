@@ -24,7 +24,7 @@ WORKDIR /usr/src/app
 
 # package.jsonをコピーして、本番用のnpmモジュールをインストール
 COPY package*.json ./
-RUN npm install --production
+RUN npm install --omit=dev
 
 # アプリケーションのソースコードをコピー
 COPY . .
