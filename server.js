@@ -22,10 +22,14 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);
 // --- アプリケーションのセットアップ ---
 const app = express();
 const server = http.createServer(app);
-// ★★★ 修正点1: ここではWebSocketServerのインスタンスを作成するだけにします ★★★
 const wss = new WebSocketServer({ noServer: true });
 
-// --- Middleware (変更なし) ---
+// ★★★ 問題1の解決策：この一行を追加 ★★★
+// Renderのプロキシを信頼するようにExpressに指示します。
+// これにより、X-Forwarded-Forヘッダーが正しく解釈され、express-rate-limitが正常に動作します。
+app.set('trust proxy', 1);
+
+// --- Middleware ---
 app.use(helmet({ contentSecurityPolicy: false }));
 const corsOptions = {
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -37,12 +41,11 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders:
 app.use('/get-formats', limiter);
 app.use('/download', limiter);
 
-// --- 静的ファイルの提供とヘルスチェック (変更なし) ---
+// --- 静的ファイルの提供とヘルスチェック ---
 app.use('/downloads', express.static(DOWNLOADS_DIR));
 app.get('/', (req, res) => { res.status(200).send("Backend server is running."); });
 
-// --- WebSocket 接続管理 (変更なし) ---
-const clients = new Map();
+// --- WebSocket 接続管理 ---
 wss.on('connection', (ws) => {
     const { v4: uuidv4 } = require('uuid');
     const clientId = uuidv4();
@@ -53,17 +56,13 @@ wss.on('connection', (ws) => {
     ws.on('error', (error) => console.error(`WebSocket Error for client ${clientId}:`, error));
 });
 
-// ★★★ 修正点2: HTTPサーバーの 'upgrade' イベントを直接処理します ★★★
-// これにより、Renderのプロキシ経由でもWebSocketへの切り替えが確実に行われます。
 server.on('upgrade', (request, socket, head) => {
-  // ここでWebSocket接続を処理するようにwssに指示します。
   wss.handleUpgrade(request, socket, head, (ws) => {
     wss.emit('connection', ws, request);
   });
 });
 
-
-// --- APIエンドポイント (これ以降のコードはすべて変更なし) ---
+// --- APIエンドポイント ---
 app.post('/get-formats', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ message: 'URLは必須です。' });
@@ -93,6 +92,7 @@ app.post('/download', (req, res) => {
     res.status(202).json({ message: 'ダウンロードリクエストを受け付けました。' });
     processDownload(clientId, url, title, options);
 });
+// (これ以降のコアロジック関数は変更なしのため、そのままにしておきます)
 function getUniqueFilename(directory, filenameBase, extension) {
     let finalFilename = `${filenameBase}.${extension}`;
     let counter = 1;
@@ -179,7 +179,7 @@ async function processDownload(clientId, url, title, options) {
     }
 }
 
-// --- サーバー起動 (変更なし) ---
+// --- サーバー起動 ---
 server.listen(PORT, () => {
     console.log(`サーバーが http://localhost:${PORT} で起動しました`);
 });
