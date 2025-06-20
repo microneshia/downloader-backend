@@ -1,26 +1,22 @@
 services:
   - type: web
-    # サービス名
     name: downloader-backend
-    # ランタイムとしてDockerを指定
-    env: docker
-    # Dockerfileへのパス（リポジトリのルートからの相対パス）
-    dockerfilePath: ./Dockerfile
-    # 無料プランを指定
+    env: node
     plan: free
-    # リージョン
     region: oregon
-    # ヘルスチェック用のパス
+    buildCommand: "npm install && pip install --upgrade pip && pip install --no-cache-dir -U yt-dlp"
+    startCommand: "node server.js"
     healthCheckPath: /
-    # 環境変数
     envVars:
-      - key: FRONTEND_URL
-        # ★重要★ RenderのダッシュボードのSecretsから設定することを推奨
-        # value: https://YOUR_USERNAME.github.io
-        fromService:
-          type: web # この書き方だと別のサービスから値を持ってこれるが、直接書くかSecretsを使うのが一般的
-          name: my-frontend-service # この部分は説明用なので、実際は直接値を書くか、sync: falseにする
+      - key: NODE_VERSION
+        value: 18
+      - key: PYTHON_VERSION
+        value: 3.10
+      - key: NODE_ENV
+        value: production # これでサーバーは本番モードで起動する
+      - key: FILE_LIFETIME_MIN
+        value: 15
       - key: MAX_FILE_SIZE
-        value: 400m
+        value: 750m
       - key: PROCESS_TIMEOUT_SEC
         value: 900
